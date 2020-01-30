@@ -4,6 +4,6 @@ namespace SharedKernel
 {
     public interface IDependencyResolver
     {
-        object Resolve(Type service);
+        TType Resolve<TType>(Type service) where TType:Type;
     }
 }

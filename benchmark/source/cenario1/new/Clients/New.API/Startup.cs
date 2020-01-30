@@ -29,9 +29,9 @@ namespace New.API
             _serviceProvider = serviceProvider;
         }
 
-        public object Resolve(Type service)
+        public TType Resolve<TType>(Type service) where  TType:Type
         {
-            return this._serviceProvider.GetService(service);
+            return (TType)this._serviceProvider.GetService(service);
         }
     }
     
@@ -85,7 +85,7 @@ namespace New.API
             var queryHandler = provider.GetService<ITransport<RouterSocket, DealerSocket>>();
             queryHandler.Start();
 
-            app.UseHttpsRedirection();
+            // app.UseHttpsRedirection();
 
             app.UseRouting();
 
