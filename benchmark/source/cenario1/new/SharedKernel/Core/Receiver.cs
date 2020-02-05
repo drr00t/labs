@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -7,9 +8,15 @@ using NetMQ.Sockets;
 
 namespace SharedKernel.Core
 {
+    public static class Constants
+    {
+        public static int ENVELOP_ROUTE_ID { private set; get; } = 0;
+        public static int ENVELOP_COMMAND { private set; get; } = 1;
+    } 
+    
     public interface IHandler
     {
-        NetMQFrame Handle(NetMQMessage data);
+        Task<NetMQFrame> Handle(NetMQMessage data);
     }
     
     public interface IReceiver<THandleStrategy>: IDisposable
@@ -21,19 +28,18 @@ namespace SharedKernel.Core
     {
         private readonly THandleStrategy _handleStrategy;
         private readonly String _endPoint;
+        private readonly ConcurrentQueue<NetMQMessage> _messageBuffer = new ConcurrentQueue<NetMQMessage>();
 
         public ReceiverReqReply(String endPoint, THandleStrategy handleStrategy)
         {
             _endPoint = endPoint;
             _handleStrategy = handleStrategy;
-
-            var server = new Task(() => Receive(),
-                TaskCreationOptions.LongRunning);
+            var server = new Task(Receive, TaskCreationOptions.LongRunning);
                 
             server.Start();
         }
         
-        public void Receive()
+        public async void Receive()
         {
             using (var server = new RouterSocket())
             {
@@ -43,19 +49,33 @@ namespace SharedKernel.Core
 
                 try
                 {
-                    while (true)
-                    {
-                        var message = server.ReceiveMultipartMessage();
-                             
-                        var responseData = _handleStrategy.Handle(message); 
-                        
-                        var messageToRouter = new NetMQMessage();
-                        messageToRouter.Append(message[0]);
-                        messageToRouter.AppendEmptyFrame();
-                        messageToRouter.Append(responseData);
 
-                        server.SendMultipartMessage(messageToRouter);
-                    }
+                    Action receiver = () =>
+                    {
+                        while (true)
+                        {
+                            var message = server.ReceiveMultipartMessage();
+                            _messageBuffer.Enqueue(message);
+                        }
+                    };
+
+                    Action processor = async () =>
+                    {
+                        NetMQMessage msg;
+                        while (_messageBuffer.TryDequeue(out msg))
+                        {
+                            var responseData = await _handleStrategy.Handle(msg);
+
+                            var messageToRouter = new NetMQMessage();
+                            messageToRouter.Append(msg[Constants.ENVELOP_ROUTE_ID]);
+                            messageToRouter.AppendEmptyFrame();
+                            messageToRouter.Append(responseData);
+
+                            server.SendMultipartMessage(messageToRouter);
+                        }
+                    };
+                    
+                    Parallel.Invoke(receiver,processor);
                 }
                 catch (Exception ex)
                 {
