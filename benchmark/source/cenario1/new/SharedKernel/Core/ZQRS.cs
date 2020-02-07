@@ -26,9 +26,20 @@ namespace SharedKernel.Core
         public ulong Id { get;}
     }
     
-    public interface ICommandHandler<TCommand> where TCommand:CommandParameter
+    public interface ICommandHandler<TCommand>
     {
         Task Execute(TCommand parameter);
+    }
+    
+    public abstract class CommandHandler<TCommand> : ICommandHandler<TCommand>
+        where TCommand:CommandParameter
+    {
+        public async Task Execute(TCommand command)
+        {
+            await ExecuteQuery(command);
+        }
+
+        protected abstract Task ExecuteQuery(TCommand command);
     }
     
     #endregion
@@ -84,8 +95,29 @@ namespace SharedKernel.Core
 
     public interface IEventSubmitter
     {
-        void Submit<TData>(string connectionString, TData data);
+        Task Submit<TData>(TData data);
     }
+
+    public class EventSubmitter : IEventSubmitter
+    {
+        private readonly String[] _endPOints; 
+        
+        public EventSubmitter(String[] endPoints)
+        {
+            _endPOints = endPoints;
+        }
+
+        public async Task Submit<TData>(TData data)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void Connect()
+        {
+           
+        }
+    }
+    
     
    #region write model
     
