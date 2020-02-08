@@ -26,6 +26,7 @@ namespace SharedKernel.Core
         public ulong Id { get;}
     }
     
+    
     public interface ICommandHandler<TCommand>
     {
         Task Execute(TCommand parameter);
@@ -34,12 +35,34 @@ namespace SharedKernel.Core
     public abstract class CommandHandler<TCommand> : ICommandHandler<TCommand>
         where TCommand:CommandParameter
     {
+        
         public async Task Execute(TCommand command)
         {
             await ExecuteQuery(command);
         }
+        
+        private async Task ServerAsync()
+        {
+            using (var server = new RouterSocket("inproc://async"))
+            {
+                var (routingKey, more) = await server.ReceiveFrameStringAsync();
+                var (message, _) = await server.ReceiveFrameStringAsync();
+
+                // TODO: process message
+
+                switch (true)
+                {
+                    
+                }
+                    
+                server.SendMoreFrame(routingKey);
+                server.SendFrame("Welcome");
+            
+            }
+        }
 
         protected abstract Task ExecuteQuery(TCommand command);
+        
     }
     
     #endregion
