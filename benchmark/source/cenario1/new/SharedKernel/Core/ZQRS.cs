@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -24,6 +26,18 @@ namespace SharedKernel.Core
         }
 
         public ulong Id { get;}
+    }
+
+    public enum ErrorType
+    {
+        Data,
+        Business
+    }
+
+    public interface IValidator
+    {
+        bool Validate();
+        
     }
     
     
@@ -104,6 +118,15 @@ namespace SharedKernel.Core
         where TResult: class 
         where TFilter:QueryFilter
     {
+        protected readonly ImmutableHashSet<TResult> _dataStore;
+        protected readonly IQueryable<TResult> Context;
+
+        public QueryHandler()
+        {
+            _dataStore = ImmutableHashSet<TResult>.Empty;
+            
+        }
+        
         public async Task<QueryResult<TResult>> Execute(TFilter filter)
         {
             return await ExecuteQuery(filter);
@@ -115,6 +138,24 @@ namespace SharedKernel.Core
     #endregion
     
     #region persistence
+    
+    /*
+     * message  fields
+     *     route key
+     *     operation string
+     *     empty
+     *     fragmented indicator boolean
+     *     fragment number
+     *     fraglimit
+     *     data blob
+     * 
+     *     states
+     *         hello
+     *         ready
+     *         processing
+     *         failed
+     *     
+     */
 
     public interface IEventSubmitter
     {
