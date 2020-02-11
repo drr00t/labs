@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using NetMQ;
 using NetMQ.Sockets;
@@ -15,6 +16,79 @@ namespace SharedKernel.Core
     {
         public ulong Id { get;}
     }
+
+    public interface IOperation
+    {
+        void Post<TParameter>(TParameter parameter);
+    }
+
+    public class Operation : IOperation
+    {
+        private string _endPoint;
+        public Operation(string endPoint)
+        {
+            _endPoint = endPoint;
+        }
+        public async void Post<TParameter>(TParameter parameter)
+        {
+            using (var server = new RouterSocket("inproc://async"))
+            {
+                var (routingKey, more) = await server.ReceiveFrameStringAsync();
+                var (message, _) = await server.ReceiveFrameStringAsync();
+
+                // TODO: serialize and send parameter 
+                var msg = new NetMQMessage();
+                
+                server.SendMultipartMessage(msg);
+            
+            }
+        }
+    }
+    
+    
+    public interface IValidator<TData>
+    {
+        string Name { get; }      
+    }
+    
+    public class Validator<TData> : IValidator<TData> where TData:new() 
+    {
+        private string _endPoint;
+        
+
+        public string Name { get; }
+        
+        public Validator(string endPoint)
+        {
+            _endPoint = endPoint;
+            Name = endPoint;
+
+            using (var runtime = new NetMQRuntime())
+            {
+                runtime.Run(StartServer());
+            }
+        }
+        
+        public async Task StartServer()
+        {
+            using (var server = new RouterSocket(Name))
+            {
+                /// implementar suporte a Cancelamento via token
+                while (true)
+                {
+                    var (routingKey, more) = await server.ReceiveFrameStringAsync();
+                    var (message, _) = await server.ReceiveFrameStringAsync();
+
+                    // TODO: serialize and send parameter 
+                    var msg = new NetMQMessage();
+                
+                    server.SendMultipartMessage(msg);
+
+                }
+            }
+        }
+    }
+    
 
     #region command side
 
@@ -28,31 +102,29 @@ namespace SharedKernel.Core
         public ulong Id { get;}
     }
 
-    public enum ErrorType
-    {
-        Data,
-        Business
-    }
 
-    public interface IValidator
-    {
-        bool Validate();
-        
-    }
-    
-    
     public interface ICommandHandler<TCommand>
     {
         Task Execute(TCommand parameter);
     }
     
-    public abstract class CommandHandler<TCommand> : ICommandHandler<TCommand>
+    public abstract class CommandHandler<TCommand> : Operation, ICommandHandler<TCommand>
         where TCommand:CommandParameter
     {
         
+        public CommandHandler(string endPoint, IValidator<int> validator)
+            :base(endPoint)
+        {
+            
+            using (var runtime = new NetMQRuntime())
+            {
+                runtime.Run(ServerAsync());
+            }            
+        }
+        
         public async Task Execute(TCommand command)
         {
-            await ExecuteQuery(command);
+            await ExecuteCommand(command);
         }
         
         private async Task ServerAsync()
@@ -62,20 +134,20 @@ namespace SharedKernel.Core
                 var (routingKey, more) = await server.ReceiveFrameStringAsync();
                 var (message, _) = await server.ReceiveFrameStringAsync();
 
-                // TODO: process message
-
-                switch (true)
-                {
-                    
-                }
-                    
+                
+                // TODO: se o COmmandSubmitter existir então deserializamos o comando aqui para processá-lo
+                
+                // await ExecuteCommand(message);
+                
+                var validatorsRouter = new RouterSocket();
+                // validatorsRouter.Connect(");
                 server.SendMoreFrame(routingKey);
                 server.SendFrame("Welcome");
             
             }
         }
 
-        protected abstract Task ExecuteQuery(TCommand command);
+        protected abstract Task ExecuteCommand(TCommand command);
         
     }
     
@@ -84,9 +156,9 @@ namespace SharedKernel.Core
     #region query side
     
     
-    public class QueryFilter:IParameter
+    public class QueryParameter:IParameter
     {
-        public QueryFilter(ulong id)
+        public QueryParameter(ulong id)
         {
             Id = id;
         }
@@ -108,6 +180,8 @@ namespace SharedKernel.Core
             Page = page;
         }
     }
+    
+    
    
     public interface IQueryHandler<TResult, TFilter> 
     {
@@ -116,7 +190,7 @@ namespace SharedKernel.Core
 
     public abstract class QueryHandler<TResult, TFilter> : IQueryHandler<TResult, TFilter>
         where TResult: class 
-        where TFilter:QueryFilter
+        where TFilter:QueryParameter
     {
         protected readonly ImmutableHashSet<TResult> _dataStore;
         protected readonly IQueryable<TResult> Context;

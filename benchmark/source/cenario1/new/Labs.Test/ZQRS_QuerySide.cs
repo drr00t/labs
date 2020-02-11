@@ -8,7 +8,7 @@ namespace Labs.Test
 {
     public class ZQRS_QuerySide
     {
-        class MyParameter: QueryFilter
+        class MyParameter: QueryParameter
         {
             public String Name { get;}
             
@@ -23,19 +23,19 @@ namespace Labs.Test
             public string name { get; set; }
         }
 
-        class TestQueryFilter : QueryFilter
+        class TestQueryParameter : QueryParameter
         {
             public string Name { get; }
             
-            public TestQueryFilter(ulong id, string name) : base(id)
+            public TestQueryParameter(ulong id, string name) : base(id)
             {
                 Name = name;
             }
         }
 
-        class TestQueryHandler : QueryHandler<MyItem, TestQueryFilter>
+        class TestQueryHandler : QueryHandler<MyItem, TestQueryParameter>
         {
-            protected override async Task<QueryResult<MyItem>> ExecuteQuery(TestQueryFilter filter)
+            protected override async Task<QueryResult<MyItem>> ExecuteQuery(TestQueryParameter parameter)
             {
                 var result = await Task.FromResult(new QueryResult<MyItem>(new []{new MyItem(),new MyItem()}, 2, 0));
 
@@ -63,7 +63,7 @@ namespace Labs.Test
             var parameter = new MyParameter(id,name);
 
             var query = new TestQueryHandler();
-            var result = await query.Execute(new TestQueryFilter(id, name));
+            var result = await query.Execute(new TestQueryParameter(id, name));
             
             Assert.True(result.Count == 2);
             Assert.True(result.Page == 0);
