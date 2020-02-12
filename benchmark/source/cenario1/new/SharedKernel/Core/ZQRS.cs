@@ -2,7 +2,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.IO;
 using System.Linq;
+using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -31,7 +33,7 @@ namespace SharedKernel.Core
         }
         public async void Post<TParameter>(TParameter parameter)
         {
-            using (var server = new RouterSocket("inproc://async"))
+            using (var server = new RouterSocket(_endPoint))
             {
                 var (routingKey, more) = await server.ReceiveFrameStringAsync();
                 var (message, _) = await server.ReceiveFrameStringAsync();
@@ -46,19 +48,30 @@ namespace SharedKernel.Core
     }
     
     
-    public interface IValidator<TData>
+    public interface IValidator
     {
         string Name { get; }      
     }
+
+    public interface IValidationResult
+    {
+        
+    }
+
+    // tornar isso assíncrono
+    public interface IRequestValidation<TData>
+    {
+        string Name { get; }
+        IValidationResult Validate(TData data);
+    }
     
-    public class Validator<TData> : IValidator<TData> where TData:new() 
+    public abstract class Validator<TData> : IValidator where TData:new() 
     {
         private string _endPoint;
         
-
         public string Name { get; }
         
-        public Validator(string endPoint)
+        protected Validator(string endPoint)
         {
             _endPoint = endPoint;
             Name = endPoint;
@@ -68,12 +81,19 @@ namespace SharedKernel.Core
                 runtime.Run(StartServer());
             }
         }
+
+        protected abstract Task<IValidationResult> ValidationRule();
         
-        public async Task StartServer()
+        private async Task StartServer()
         {
-            using (var server = new RouterSocket(Name))
+            using (var server = new RouterSocket())
             {
-                /// implementar suporte a Cancelamento via token
+                server.Options.Identity = Encoding.UTF8.GetBytes(Name);
+                server.Options.RouterMandatory = true;
+                server.Bind(Name);
+                
+                // FIXME: implementar suporte a Cancelamento via token
+                
                 while (true)
                 {
                     var (routingKey, more) = await server.ReceiveFrameStringAsync();
@@ -81,14 +101,57 @@ namespace SharedKernel.Core
 
                     // TODO: serialize and send parameter 
                     var msg = new NetMQMessage();
-                
-                    server.SendMultipartMessage(msg);
 
+                    var result = await ValidationRule();
+                    
+                    // convert result to NetMQMessage
+                    msg.Append(routingKey);
+                    msg.AppendEmptyFrame();
+                    msg.Append( "result");
+                    
+                    server.SendMultipartMessage(msg);
                 }
             }
         }
     }
-    
+
+    public class RequestValidation<TData> where TData:class, IRequestValidation<TData>
+    {
+        public string Name { get; }
+
+        public RequestValidation(string validatorEndPoint)
+        {
+            Name = validatorEndPoint;
+        }
+        
+        public IValidationResult Validate(TData data)
+        {
+            using (var client = new RouterSocket())
+            {
+                client.Connect(Name);
+                
+                // FIXME: implementar suporte a Cancelamento via token
+                
+                // TODO: serialize and send parameter 
+                var msg = new NetMQMessage();
+                string readyData;
+
+                var sData = JsonSerializer.Serialize(data);
+                                   
+                
+                // convert result to NetMQMessage
+                msg.AppendEmptyFrame();
+                msg.Append(sData);
+
+                client.SendMultipartMessage(msg);
+
+                var result = client.ReceiveMultipartMessage();
+                
+                return JsonSerializer.Deserialize<IValidationResult>(result[2].ConvertToString());
+
+            }
+        }
+    }
 
     #region command side
 
@@ -107,12 +170,12 @@ namespace SharedKernel.Core
     {
         Task Execute(TCommand parameter);
     }
-    
+
     public abstract class CommandHandler<TCommand> : Operation, ICommandHandler<TCommand>
         where TCommand:CommandParameter
     {
         
-        public CommandHandler(string endPoint, IValidator<int> validator)
+        public CommandHandler(string endPoint, IValidator validator)
             :base(endPoint)
         {
             
